@@ -73,7 +73,7 @@ namespace GetDotAData
                                                      .ToList(); 
 
                             //track the number in each skill category, making this loop useless (but allowing us to skip
-                            //segments where we don't have data to compare and limit our API calls which take fucking forever
+                            //segments where we don't have data to compare and limit our API calls which take fucking forever)
                             if (skill == (int)Skill.VeryHigh) vh = matches.Count();
                             if (skill == (int)Skill.High) h = matches.Count();
 
