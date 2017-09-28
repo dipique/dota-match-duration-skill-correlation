@@ -48,6 +48,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
+    <None Include="output - sample.dat" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Dota2Api\Dota2Api.csproj">
