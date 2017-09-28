@@ -15,6 +15,7 @@ namespace GetDotAData
     {
         public const string OUTPUT_FILE = "output.dat";
 
+        //made by /u/dipique with <3 for /u/GeneralGaylord
         static void Main(string[] args)
         {
             //Put your API key in the app.config (get one here: https://steamcommunity.com/dev/apikey)
