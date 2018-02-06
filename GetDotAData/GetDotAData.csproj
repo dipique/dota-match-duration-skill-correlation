@@ -48,6 +48,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
+    <None Include="dota2api.pdf" />
     <None Include="output - sample.dat" />
   </ItemGroup>
   <ItemGroup>

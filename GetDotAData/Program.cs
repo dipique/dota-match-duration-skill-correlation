@@ -8,12 +8,15 @@ using System.Configuration;
 
 using Dota2Api;
 using Dota2Api.Enums;
+using Dota2Api.ApiClasses;
 
 namespace GetDotAData
 {
     class Program
     {
         public const string OUTPUT_FILE = "output.dat";
+        private const int MATCH_COUNT = 1000;
+        private const long ACCOUNT_ID = 409640815;
 
         //made by /u/dipique with <3 for /u/GeneralGaylord
         static void Main(string[] args)
@@ -24,7 +27,8 @@ namespace GetDotAData
                 //Start by getting a list of heroes
                 var tH = handler.GetHeroes();
                 tH.Wait();
-                var heroIDs = tH.Result.Heroes.Select(h => h.Id);
+                var heroes = tH.Result.Heroes;
+                var heroIDs = heroes.Select(h => h.Id);
                 WaitOneSecond(); //to avoid erroring out API
 
                 //get first match ID (well, last actually)
@@ -33,55 +37,34 @@ namespace GetDotAData
                 long startID = t.Result.Matches.First().MatchId;
                 WaitOneSecond(); //to avoid erroring out API
 
-                //run skills from high to low and skip segments where we don't have high skill data to
-                //compare with (this makes it run faster but does not change the shape of the data)
-                var skillList = from int s in Enum.GetValues(typeof(Skill))
-                                orderby s descending
-                                select s;
-
                 //make sure we have enough data; loop with more if < 500 matches
                 var matchList = new List<MatchInfo>();
-                while (matchList.Count() < 500)
+                while (matchList.Count() < MATCH_COUNT)
                 {
                     //It'd be nice to not do this, but the API is stupid and will only give access to the most recent 500 matches
                     //otherwise. So we run it for each hero instead and add up all the data.
                     foreach (var id in heroIDs)
                     {
-                        //Oddly, the skill level isn't in the response, so we need to run the query by skill level
-                        //and cache it for later.
-                        int vh = 0; int h = 0;
-                        foreach (var skill in skillList)
-                        {
-                            //the whole purpose of this is comparison, so if there aren't any matches in the previous skill level, skip this hero
-                            if ((Skill)skill == Skill.High && vh == 0) continue;
-                            if ((Skill)skill == Skill.Normal && h == 0) continue;
+                        //Get the list of matches that meet our current search criteria
+                        Console.WriteLine($"Search: heroID {id}");
+                        var matchesTask = handler.GetMatchHistory(startID.ToString(),
+                                                                  heroId: id,
+                                                                  gameMode: GameMode.AllPick,
+                                                                  accountId: ACCOUNT_ID.ToString(),
+                                                                  matchesRequested: "25");
+                        matchesTask.Wait();
 
-                            //Get the list of matches that meet our current search criteria
-                            Console.WriteLine($"Search: {skill} - heroID {id}");
-                            var matchesTask = handler.GetMatchHistory(startID.ToString(), 
-                                                                      skill: skill.ToString(), 
-                                                                      heroId: id, 
-                                                                      gameMode: GameMode.AllPick,
-                                                                      matchesRequested: "25");
-                            matchesTask.Wait();
+                        //Filter the results to ones we're interested in
+                        var matches = matchesTask.Result.Matches
+                                                 .Where(m => m.LobbyType == LobbyType.RankedMatchmaking)    //pubs only (no league games, siltbreaker, etc.)
+                                                 .Where(m => m.Players.Count() == 10)                       //no 1v1s
+                                                 .Where(m => !matchList.Any(ml => ml.MatchID == m.MatchId)) //prevent duplicate entries;
+                                                 .ToList();
 
-                            //Filter the results to ones we're interested in
-                            var matches = matchesTask.Result.Matches
-                                                     .Where(m => m.LobbyType == LobbyType.PublicMatchmaking)    //pubs only (no league games, siltbreaker, etc.)
-                                                     .Where(m => m.Players.Count() == 10)                       //no 1v1s
-                                                     .Where(m => !matchList.Any(ml => ml.MatchID == m.MatchId)) //prevent duplicate entries;
-                                                     .ToList(); 
-
-                            //track the number in each skill category, making this loop useless (but allowing us to skip
-                            //segments where we don't have data to compare and limit our API calls which take fucking forever)
-                            if (skill == (int)Skill.VeryHigh) vh = matches.Count();
-                            if (skill == (int)Skill.High) h = matches.Count();
-
-                            //cache the data we've colleceted as MatchInfo objects
-                            Console.WriteLine($"Found {matches.Count()} matches to parse");
-                            WaitOneSecond(); //to avoid erroring out API
-                            matchList.AddRange(matches.Select(m => new MatchInfo(handler, m.MatchId, (Skill)skill)));
-                        }
+                        //cache the data we've colleceted as MatchInfo objects
+                        Console.WriteLine($"Found {matches.Count()} matches to parse");
+                        WaitOneSecond(); //to avoid erroring out API
+                        matchList.AddRange(matches.Select(m => new MatchInfo(handler, m.MatchId, heroes)));
                     }
                     //when we loop for new data (meaning games farther back), this makes sure we fetch data older than the data we currently have
                     startID = matchList.Min(m => m.MatchID) - 1;
@@ -101,12 +84,17 @@ namespace GetDotAData
         /// </summary>
         public class MatchInfo
         {
+            public long PlayerID { get; set; } = 409640815;
+            public string PlayerTeam { get; set; }
+            public string PlayerHero { get; set; }
+            public string MatchDate { get; set; }
+
             public long MatchID { get; set; }
             public int Duration { get; set; }
-            public Skill SkillLevel { get; set; }
             public bool Eliminate => !string.IsNullOrEmpty(EliminateReason);
             public string EliminateReason { get; set; }
             public string Exception { get; set; }
+            public string Winner { get; set; }
 
             private const int MIN_DURATION = 600; // 10 minutes
 
@@ -118,10 +106,9 @@ namespace GetDotAData
             /// <param name="handler"></param>
             /// <param name="matchID"></param>
             /// <param name="skill"></param>
-            public MatchInfo(ApiHandler handler, long matchID, Skill skill)
+            public MatchInfo(ApiHandler handler, long matchID, List<Hero> heroes)
             {
                 MatchID = matchID;
-                SkillLevel = skill;
 
                 try
                 {
@@ -129,6 +116,15 @@ namespace GetDotAData
                     tD.Wait();
                     var result = tD.Result;
                     Duration = result.Duration;
+                    Winner = result.WinningFaction.ToString();
+                    MatchDate = result.StartTime.ToString();
+
+                    if (PlayerID != 0)
+                    {
+                        PlayerTeam = result.Players.First(p => p.AccountId == PlayerID).Faction.ToString();
+                        PlayerHero = heroes.FirstOrDefault(h => h.Id == result.Players.First(p => p.AccountId == PlayerID).HeroId).Name;
+                    }
+
                     if (result.Players.Any(p => p.LeaverStatus != LeaverStatus.DotaLeaverNone))
                     {
                         EliminateReason = "Abandon/disconnect";
@@ -152,7 +148,7 @@ namespace GetDotAData
             /// <returns></returns>
             public override string ToString()
             {
-                return $"{MatchID}\t{Duration}\t{SkillLevel}\t{Eliminate}\t{EliminateReason}\t{Exception}";
+                return $"{MatchID}\t{MatchDate}\t{Winner}\t{PlayerTeam}\t{PlayerHero}\t{Duration}\t{Eliminate}\t{EliminateReason}\t{Exception}";
             }
         }
 

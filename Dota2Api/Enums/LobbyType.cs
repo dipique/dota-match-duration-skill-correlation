@@ -14,6 +14,8 @@ namespace Dota2Api.Enums
         Tutorial = 3,
         COOPWithBots = 4,
         TeamMatch = 5,
-        SoloQueue = 6
+        SoloQueue = 6,
+        RankedMatchmaking = 7,
+        SoloMid1V1 = 8
     }
 }
